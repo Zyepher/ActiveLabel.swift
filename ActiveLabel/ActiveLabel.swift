@@ -443,18 +443,21 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         
         var correctLocation = location
         correctLocation.y -= heightCorrection
-        let boundingRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: 0, length: textStorage.length), in: textContainer)
+        let boundingRect = layoutManager.usedRect(for: textContainer)
         guard boundingRect.contains(correctLocation) else {
             return nil
         }
         
         let index = layoutManager.glyphIndex(for: correctLocation, in: textContainer)
         
+        // Combine all elements
         let allElements = activeElements.flatMap { $0.value }
+        
+        // Optionally, sort all elements by range location
         let sortedElements = allElements.sorted { $0.range.location < $1.range.location }
         
         for element in sortedElements {
-            if index >= element.range.location && index <= element.range.location + element.range.length - 1 {
+            if NSLocationInRange(index, element.range) {
                 return element
             }
         }

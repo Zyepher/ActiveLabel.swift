@@ -34,11 +34,11 @@ struct ActiveBuilder {
         var offset = 0
 
         for match in matches where match.range.length > 2 {
-            // Adjust the range to account for any previous replacements
+            // Adjust the range to account for previous replacements
             let adjustedRange = NSRange(location: match.range.location + offset, length: match.range.length)
             guard let matchRange = Range(adjustedRange, in: text) else { continue }
             let word = String(text[matchRange])
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             
             let trimmedWord: String
             if let maxLength = maximumLength, word.count > maxLength {
@@ -50,13 +50,13 @@ struct ActiveBuilder {
             // Replace the word in the text at the specific range
             text.replaceSubrange(matchRange, with: trimmedWord)
 
-            // Calculate new range for the trimmed word
+            // Calculate new range for the trimmed word (including the ellipsis)
             let lengthDifference = trimmedWord.count - word.count
-            let newRangeLocation = match.range.location + offset
+            let newRangeLocation = adjustedRange.location
             let newRangeLength = trimmedWord.count
             let newRange = NSRange(location: newRangeLocation, length: newRangeLength)
             
-            // Update offset for subsequent ranges
+            // Update offset for subsequent replacements
             offset += lengthDifference
 
             let element = ActiveElement.url(original: word, trimmed: trimmedWord)
