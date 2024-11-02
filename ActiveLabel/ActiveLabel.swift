@@ -349,7 +349,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         var textLength = textString.utf16.count
         var textRange = NSRange(location: 0, length: textLength)
         
-        urlMaximumLength = 47
+        urlMaximumLength = 100
         
         if enabledTypes.contains(.url) {
             let tuple = ActiveBuilder.createURLElements(from: textString, range: textRange, maximumLength: urlMaximumLength)
@@ -450,8 +450,11 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         
         let index = layoutManager.glyphIndex(for: correctLocation, in: textContainer)
         
-        for element in activeElements.map({ $0.1 }).joined() {
-            if index >= element.range.location && index <= element.range.location + element.range.length {
+        let allElements = activeElements.flatMap { $0.value }
+        let sortedElements = allElements.sorted { $0.range.location < $1.range.location }
+        
+        for element in sortedElements {
+            if index >= element.range.location && index <= element.range.location + element.range.length - 1 {
                 return element
             }
         }

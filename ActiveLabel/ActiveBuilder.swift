@@ -26,27 +26,39 @@ struct ActiveBuilder {
     static func createURLElements(from text: String, range: NSRange, maximumLength: Int?) -> ([ElementTuple], String) {
         let type = ActiveType.url
         var text = text
-        //        let matches = RegexParser.getElements(from: text, with: type.pattern, range: range)
-        let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return ([], text)
+        }
         let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
-        let nsstring = text as NSString
         var elements: [ElementTuple] = []
-        
+        var offset = 0
+
         for match in matches where match.range.length > 2 {
-            let word = nsstring.substring(with: match.range)
+            // Adjust the range to account for any previous replacements
+            let adjustedRange = NSRange(location: match.range.location + offset, length: match.range.length)
+            guard let matchRange = Range(adjustedRange, in: text) else { continue }
+            let word = String(text[matchRange])
                 .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             
-            guard let maxLength = maximumLength, word.count > maxLength else {
-                let range = maximumLength == nil ? match.range : (text as NSString).range(of: word)
-                let element = ActiveElement.create(with: type, text: word)
-                elements.append((range, element, type))
-                continue
+            let trimmedWord: String
+            if let maxLength = maximumLength, word.count > maxLength {
+                trimmedWord = word.trim(to: maxLength)
+            } else {
+                trimmedWord = word
             }
+
+            // Replace the word in the text at the specific range
+            text.replaceSubrange(matchRange, with: trimmedWord)
+
+            // Calculate new range for the trimmed word
+            let lengthDifference = trimmedWord.count - word.count
+            let newRangeLocation = match.range.location + offset
+            let newRangeLength = trimmedWord.count
+            let newRange = NSRange(location: newRangeLocation, length: newRangeLength)
             
-            let trimmedWord = word.trim(to: maxLength)
-            text = text.replacingOccurrences(of: word, with: trimmedWord)
-            
-            let newRange = (text as NSString).range(of: trimmedWord)
+            // Update offset for subsequent ranges
+            offset += lengthDifference
+
             let element = ActiveElement.url(original: word, trimmed: trimmedWord)
             elements.append((newRange, element, type))
         }
@@ -79,20 +91,22 @@ struct ActiveBuilder {
                                                              range: NSRange,
                                                              filterPredicate: ActiveFilterPredicate?) -> [ElementTuple] {
         let matches = RegexParser.getElements(from: text, with: type.pattern, range: range)
-        let nsstring = text as NSString
         var elements: [ElementTuple] = []
-        
-        for match in matches where match.range.length > 2 {
-            let range = NSRange(location: match.range.location + 1, length: match.range.length - 1)
-            var word = nsstring.substring(with: range)
-            if word.hasPrefix("@") {
+
+        for match in matches where match.range.length > 1 {
+            guard let matchRange = Range(match.range, in: text) else { continue }
+            // Skip the first character
+            let wordStartIndex = text.index(after: matchRange.lowerBound)
+            let wordRange = wordStartIndex..<matchRange.upperBound
+            var word = String(text[wordRange])
+
+            // Remove additional "@" or "#" if present
+            if word.hasPrefix("@") || word.hasPrefix("#") {
                 word.remove(at: word.startIndex)
             }
-            else if word.hasPrefix("#") {
-                word.remove(at: word.startIndex)
-            }
-            
+
             if filterPredicate?(word) ?? true {
+                // Store the original match range to highlight the entire mention
                 let element = ActiveElement.create(with: type, text: word)
                 elements.append((match.range, element, type))
             }

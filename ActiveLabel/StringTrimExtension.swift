@@ -9,8 +9,9 @@
 import Foundation
 
 extension String {
-
     func trim(to maximumCharacters: Int) -> String {
-        return "\(self[..<index(startIndex, offsetBy: maximumCharacters)])" + "..."
+        guard count > maximumCharacters else { return self }
+        let index = self.index(self.startIndex, offsetBy: maximumCharacters)
+        return String(self[..<index]) + "..."
     }
 }
