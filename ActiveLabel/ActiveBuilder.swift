@@ -21,32 +21,38 @@ struct ActiveBuilder {
         case .custom:
             return createElements(from: text, for: type, range: range, minLength: 1, filterPredicate: filterPredicate)
         case .email:
-            return createElements(from: text, for: type, range: range, filterPredicate: filterPredicate)
+            return createElements(from: text, for: type, range: range, minLength: 0, filterPredicate: filterPredicate)
         }
     }
 
     static func createURLElements(from text: String, range: NSRange, maximumLength: Int?) -> ([ElementTuple], String) {
         let type = ActiveType.url
         var text = text
-        let matches = RegexParser.getElements(from: text, with: type.pattern, range: range)
-        let nsstring = text as NSString
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return ([], text)
+        }
+        let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
         var elements: [ElementTuple] = []
+        var offset = 0
 
         for match in matches where match.range.length > 2 {
-            let word = nsstring.substring(with: match.range)
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            let adjustedRange = NSRange(location: match.range.location + offset, length: match.range.length)
+            guard let matchRange = Range(adjustedRange, in: text) else { continue }
+            let word = String(text[matchRange])
 
-            guard let maxLength = maximumLength, word.count > maxLength else {
-                let range = maximumLength == nil ? match.range : (text as NSString).range(of: word)
-                let element = ActiveElement.create(with: type, text: word)
-                elements.append((range, element, type))
-                continue
+            let trimmedWord: String
+            if let maxLength = maximumLength, word.count > maxLength {
+                trimmedWord = word.trim(to: maxLength)
+            } else {
+                trimmedWord = word
             }
 
-            let trimmedWord = word.trim(to: maxLength)
-            text = text.replacingOccurrences(of: word, with: trimmedWord)
+            text.replaceSubrange(matchRange, with: trimmedWord)
 
-            let newRange = (text as NSString).range(of: trimmedWord)
+            let lengthDifference = trimmedWord.count - word.count
+            offset += lengthDifference
+
+            let newRange = NSRange(location: adjustedRange.location, length: trimmedWord.count)
             let element = ActiveElement.url(original: word, trimmed: trimmedWord)
             elements.append((newRange, element, type))
         }

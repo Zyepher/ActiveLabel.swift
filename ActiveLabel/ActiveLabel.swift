@@ -21,7 +21,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
     // MARK: - public properties
     open weak var delegate: ActiveLabelDelegate?
     
-    open var enabledTypes: [ActiveType] = [.mention, .hashtag, .url]
+    open var enabledTypes: [ActiveType] = [.mention, .hashtag, .url, .email]
     
     open var urlMaximumLength: Int?
     
@@ -191,18 +191,21 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             return .zero
         }
 
-        textContainer.size = CGSize(width: self.preferredMaxLayoutWidth, height: CGFloat.greatestFiniteMagnitude)
+        let width = self.preferredMaxLayoutWidth > 0 ? self.preferredMaxLayoutWidth : self.bounds.width
+        textContainer.size = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        
         let size = layoutManager.usedRect(for: textContainer)
         return CGSize(width: ceil(size.width), height: ceil(size.height))
     }
+    
     
     // MARK: - touch events
     func onTouch(_ touch: UITouch) -> Bool {
         let location = touch.location(in: self)
         var avoidSuperCall = false
-        
+
         switch touch.phase {
-        case .began, .moved, .regionEntered, .regionMoved:
+        case .began, .moved:
             if let element = element(at: location) {
                 if element.range.location != selectedElement?.range.location || element.range.length != selectedElement?.range.length {
                     updateAttributesWhenSelected(false)
@@ -214,7 +217,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
                 updateAttributesWhenSelected(false)
                 selectedElement = nil
             }
-        case .ended, .regionExited:
+        case .ended:
             guard let selectedElement = selectedElement else { return avoidSuperCall }
             
             switch selectedElement.element {
@@ -234,9 +237,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         case .cancelled:
             updateAttributesWhenSelected(false)
             selectedElement = nil
-        case .stationary:
-            break
-        @unknown default:
+        default:
             break
         }
         
@@ -458,7 +459,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         let index = layoutManager.glyphIndex(for: correctLocation, in: textContainer)
         
         for element in activeElements.map({ $0.1 }).joined() {
-            if index >= element.range.location && index <= element.range.location + element.range.length {
+            if NSLocationInRange(index, element.range) {
                 return element
             }
         }
