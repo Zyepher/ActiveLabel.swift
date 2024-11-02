@@ -9,7 +9,7 @@
 import Foundation
 import UIKit
 
-public protocol ActiveLabelDelegate: AnyObject {
+public protocol ActiveLabelDelegate: class {
     func didSelect(_ text: String, type: ActiveType)
 }
 
@@ -87,6 +87,10 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         customTapHandlers[type] = handler
     }
     
+    open func handleEmailTap(_ handler: @escaping (String) -> ()) {
+        emailTapHandler = handler
+    }
+    
     open func removeHandle(for type: ActiveType) {
         switch type {
         case .hashtag:
@@ -97,6 +101,8 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             urlTapHandler = nil
         case .custom:
             customTapHandlers[type] = nil
+        case .email:
+            emailTapHandler = nil
         }
     }
     
@@ -181,8 +187,11 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
     // MARK: - Auto layout
     
     open override var intrinsicContentSize: CGSize {
-        let superSize = super.intrinsicContentSize
-        textContainer.size = CGSize(width: superSize.width, height: CGFloat.greatestFiniteMagnitude)
+        guard let text = text, !text.isEmpty else {
+            return .zero
+        }
+
+        textContainer.size = CGSize(width: self.preferredMaxLayoutWidth, height: CGFloat.greatestFiniteMagnitude)
         let size = layoutManager.usedRect(for: textContainer)
         return CGSize(width: ceil(size.width), height: ceil(size.height))
     }
@@ -193,7 +202,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         var avoidSuperCall = false
         
         switch touch.phase {
-        case .began, .moved:
+        case .began, .moved, .regionEntered, .regionMoved:
             if let element = element(at: location) {
                 if element.range.location != selectedElement?.range.location || element.range.length != selectedElement?.range.length {
                     updateAttributesWhenSelected(false)
@@ -205,7 +214,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
                 updateAttributesWhenSelected(false)
                 selectedElement = nil
             }
-        case .ended:
+        case .ended, .regionExited:
             guard let selectedElement = selectedElement else { return avoidSuperCall }
             
             switch selectedElement.element {
@@ -213,6 +222,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             case .hashtag(let hashtag): didTapHashtag(hashtag)
             case .url(let originalURL, _): didTapStringURL(originalURL)
             case .custom(let element): didTap(element, for: selectedElement.type)
+            case .email(let element): didTapStringEmail(element)
             }
             
             let when = DispatchTime.now() + Double(Int64(0.25 * Double(NSEC_PER_SEC))) / Double(NSEC_PER_SEC)
@@ -225,12 +235,6 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             updateAttributesWhenSelected(false)
             selectedElement = nil
         case .stationary:
-            break
-        case .regionEntered:
-            break
-        case .regionMoved:
-            break
-        case .regionExited:
             break
         @unknown default:
             break
@@ -246,6 +250,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
     internal var mentionTapHandler: ((String) -> ())?
     internal var hashtagTapHandler: ((String) -> ())?
     internal var urlTapHandler: ((URL) -> ())?
+    internal var emailTapHandler: ((String) -> ())?
     internal var customTapHandlers: [ActiveType : ((String) -> ())] = [:]
     
     fileprivate var mentionFilterPredicate: ((String) -> Bool)?
@@ -327,6 +332,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             case .hashtag: attributes[NSAttributedString.Key.foregroundColor] = hashtagColor
             case .url: attributes[NSAttributedString.Key.foregroundColor] = URLColor
             case .custom: attributes[NSAttributedString.Key.foregroundColor] = customColor[type] ?? defaultCustomColor
+            case .email: attributes[NSAttributedString.Key.foregroundColor] = URLColor
             }
             
             if let highlightFont = hightlightFont {
@@ -348,8 +354,6 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         var textString = attrString.string
         var textLength = textString.utf16.count
         var textRange = NSRange(location: 0, length: textLength)
-        
-        urlMaximumLength = 100
         
         if enabledTypes.contains(.url) {
             let tuple = ActiveBuilder.createURLElements(from: textString, range: textRange, maximumLength: urlMaximumLength)
@@ -374,6 +378,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         
         return textString
     }
+    
     
     /// add line break mode
     fileprivate func addLineBreak(_ attrString: NSAttributedString) -> NSMutableAttributedString {
@@ -410,6 +415,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             case .custom:
                 let possibleSelectedColor = customSelectedColor[selectedElement.type] ?? customColor[selectedElement.type]
                 selectedColor = possibleSelectedColor ?? defaultCustomColor
+            case .email: selectedColor = URLSelectedColor ?? URLColor
             }
             attributes[NSAttributedString.Key.foregroundColor] = selectedColor
         } else {
@@ -419,6 +425,7 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             case .hashtag: unselectedColor = hashtagColor
             case .url: unselectedColor = URLColor
             case .custom: unselectedColor = customColor[selectedElement.type] ?? defaultCustomColor
+            case .email: unselectedColor = URLColor
             }
             attributes[NSAttributedString.Key.foregroundColor] = unselectedColor
         }
@@ -443,21 +450,15 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         
         var correctLocation = location
         correctLocation.y -= heightCorrection
-        let boundingRect = layoutManager.usedRect(for: textContainer)
+        let boundingRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: 0, length: textStorage.length), in: textContainer)
         guard boundingRect.contains(correctLocation) else {
             return nil
         }
         
         let index = layoutManager.glyphIndex(for: correctLocation, in: textContainer)
         
-        // Combine all elements
-        let allElements = activeElements.flatMap { $0.value }
-        
-        // Optionally, sort all elements by range location
-        let sortedElements = allElements.sorted { $0.range.location < $1.range.location }
-        
-        for element in sortedElements {
-            if NSLocationInRange(index, element.range) {
+        for element in activeElements.map({ $0.1 }).joined() {
+            if index >= element.range.location && index <= element.range.location + element.range.length {
                 return element
             }
         }
@@ -514,6 +515,14 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             return
         }
         urlHandler(url)
+    }
+    
+    fileprivate func didTapStringEmail(_ stringEmail: String) {
+        guard let emailHandler = emailTapHandler else {
+            delegate?.didSelect(stringEmail, type: .email)
+            return
+        }
+        emailHandler(stringEmail)
     }
     
     fileprivate func didTap(_ element: String, for type: ActiveType) {
