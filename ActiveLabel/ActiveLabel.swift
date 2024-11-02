@@ -17,7 +17,6 @@ public typealias ConfigureLinkAttribute = (ActiveType, [NSAttributedString.Key :
 typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveType)
 
 @IBDesignable open class ActiveLabel: UILabel {
-    
     // MARK: - public properties
     open weak var delegate: ActiveLabelDelegate?
     
@@ -355,7 +354,14 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
         var textString = attrString.string
         var textLength = textString.utf16.count
         var textRange = NSRange(location: 0, length: textLength)
-        
+
+        // Process emails first
+        if enabledTypes.contains(.email) {
+            let emailElements = ActiveBuilder.createElements(type: .email, from: textString, range: textRange, filterPredicate: nil)
+            activeElements[.email] = emailElements
+        }
+
+        // Process URLs next
         if enabledTypes.contains(.url) {
             let tuple = ActiveBuilder.createURLElements(from: textString, range: textRange, maximumLength: urlMaximumLength)
             let urlElements = tuple.0
@@ -365,21 +371,21 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
             textRange = NSRange(location: 0, length: textLength)
             activeElements[.url] = urlElements
         }
-        
-        for type in enabledTypes where type != .url {
+
+        // Process other types
+        for type in enabledTypes where type != .url && type != .email {
             var filter: ((String) -> Bool)? = nil
             if type == .mention {
                 filter = mentionFilterPredicate
             } else if type == .hashtag {
                 filter = hashtagFilterPredicate
             }
-            let hashtagElements = ActiveBuilder.createElements(type: type, from: textString, range: textRange, filterPredicate: filter)
-            activeElements[type] = hashtagElements
+            let elements = ActiveBuilder.createElements(type: type, from: textString, range: textRange, filterPredicate: filter)
+            activeElements[type] = elements
         }
-        
+
         return textString
     }
-    
     
     /// add line break mode
     fileprivate func addLineBreak(_ attrString: NSAttributedString) -> NSMutableAttributedString {
@@ -536,7 +542,6 @@ typealias ElementTuple = (range: NSRange, element: ActiveElement, type: ActiveTy
 }
 
 extension ActiveLabel: UIGestureRecognizerDelegate {
-    
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         return true
     }
