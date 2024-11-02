@@ -35,7 +35,8 @@ struct ActiveBuilder {
         var elements: [ElementTuple] = []
         var offset = 0
 
-        for match in matches where match.range.length > 2 {
+        // Process matches in reverse order
+        for match in matches.reversed() where match.range.length > 2 {
             let adjustedRange = NSRange(location: match.range.location + offset, length: match.range.length)
             guard let matchRange = Range(adjustedRange, in: text) else { continue }
             let word = String(text[matchRange])
@@ -56,6 +57,8 @@ struct ActiveBuilder {
             let element = ActiveElement.url(original: word, trimmed: trimmedWord)
             elements.append((newRange, element, type))
         }
+        // Reverse the elements to maintain original order
+        elements.reverse()
         return (elements, text)
     }
 
